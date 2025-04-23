@@ -1,0 +1,16 @@
+ac_max: 2
+ac_min: -2
+actor_lr: 0.0003
+actor_hidden_dim: 256
+critic_lr: 0.0003
+critic_hidden_dim: 256
+memory: 1000000
+episodes: 3000
+gamma: 0.99
+batch_size: 256
+target_update_freq: 1
+actor_update_freq: 2
+td3_exploration_start: 0.2
+td3_exploration_min:   0.01
+td3_exploration_decay: 0.9999
+replay_buffer: 10

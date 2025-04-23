@@ -14,10 +14,10 @@ class ReplayBuffer:
         states, actions, rewards, next_states, dones = zip(*batch)
         
         states = torch.stack([torch.tensor(s, dtype=torch.float32) for s in states])
-        actions = torch.tensor(actions, dtype=torch.int64).unsqueeze(1)
-        rewards = torch.tensor(rewards, dtype=torch.float32).unsqueeze(1)
+        actions = torch.tensor(actions, dtype=torch.float32)
+        rewards = torch.tensor(rewards, dtype=torch.float32)
         next_states = torch.stack([torch.tensor(s, dtype=torch.float32) for s in next_states])
-        dones = torch.tensor(dones, dtype=torch.float32).unsqueeze(1)
+        dones = torch.tensor(dones, dtype=torch.float32)
         
         return states, actions, rewards, next_states, dones
     

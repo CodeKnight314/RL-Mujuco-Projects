@@ -1,6 +1,6 @@
 import gymnasium as gym
-from ..model import ActorDeterministic, ActorProbabilistic, Critic
-from ..replay import ReplayBuffer
+from src.model import ActorDeterministic, ActorProbabilistic, Critic
+from src.replay import ReplayBuffer
 import yaml
 import torch
 import os
@@ -46,6 +46,10 @@ class PusherEnv:
         self.alpha = self.log_alpha.exp()
         self.alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=3e-4)
         
+        self.td3_exploration = self.config["td3_exploration_start"]
+        self.td3_exploration_min = self.config["td3_exploration_min"]
+        self.td3_exploration_decay = self.config["td3_exploration_decay"]
+        
         if weights: 
             try:
                 self.actor.load(os.path.join(weights, "actor.pth"))
@@ -57,7 +61,7 @@ class PusherEnv:
             
         self.update_target(True)
         
-    def update_target(self, hard_update: bool = True, tau: float = 0.05):
+    def update_target(self, hard_update: bool = True, tau: float = 0.005):
         if hard_update: 
             self.target_actor.load_state_dict(self.actor.state_dict())
             self.tc_1.load_state_dict(self.critic_1.state_dict())
@@ -74,28 +78,34 @@ class PusherEnv:
                 
     def td3_critic_update(self, states: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor, next_states: torch.Tensor, dones: torch.Tensor):
         with torch.no_grad(): 
-            noise = torch.normal(mean=0.0, std=self.config["td3_exploration"], out=actions.shape)
-            noise = torch.clamp(noise, self.config["acs_min"], self.config["acs_max"])
-            
-            next_actions = (self.target_actor(states) + noise).clamp(self.config["acs_min"], self.config["acs_max"])
-            
+            noise = torch.normal(mean=0.0, std=self.td3_exploration, size=actions.shape, device=actions.device)            
+            noise = torch.clamp(noise, self.acs_min, self.acs_max)
+            next_actions = self.target_actor(next_states) + noise
+            next_actions = torch.clamp(next_actions, self.acs_min, self.acs_max)
             state_action = torch.cat([next_states, next_actions], dim=-1)
-            target = rewards + self.config["gamma"] * (1 - dones) * (torch.min(self.tc_1(state_action), self.tc_2(state_action)))
-            
+            Q = torch.min(
+                self.tc_1(state_action), self.tc_2(state_action)
+            )
+            target = rewards + self.config["gamma"] * (1 - dones) * Q
+            target = target.detach()
+
         current_q_c1 = self.critic_1(torch.cat([states, actions], dim=-1))
         current_q_c2 = self.critic_2(torch.cat([states, actions], dim=-1))
+        q1_mean = current_q_c1.mean().item()
+        q2_mean = current_q_c2.mean().item()
         
-        q_c1_loss = F.mse_loss(current_q_c1, target)
-        q_c2_loss = F.mse_loss(current_q_c2, target)
-        total_loss = q_c1_loss + q_c2_loss
+        c1_loss = F.mse_loss(current_q_c1, target)
+        c2_loss = F.mse_loss(current_q_c2, target)
         
         self.c1_opt.zero_grad()
-        self.c2_opt.zero_grad()
-        total_loss.backward()
+        c1_loss.backward()
         self.c1_opt.step()
+        
+        self.c2_opt.zero_grad()
+        c2_loss.backward()
         self.c2_opt.step()
         
-        return total_loss.item()
+        return c2_loss.item() + c1_loss.item(), q1_mean, q2_mean
     
     def td3_actor_update(self, states: torch.Tensor):
         actor_loss = -self.critic_1(torch.cat([states, self.actor(states)], dim=-1)).mean()
@@ -118,15 +128,16 @@ class PusherEnv:
             
         c1_loss = F.mse_loss(self.critic_1(torch.cat([states, actions], dim=-1)), target)
         c2_loss = F.mse_loss(self.critic_2(torch.cat([states, actions], dim=-1)), target)
-        total_loss = c1_loss + c2_loss 
         
         self.c1_opt.zero_grad()
-        self.c2_opt.zero_grad()
-        total_loss.backward()
+        c1_loss.backward()
         self.c1_opt.step()
+        
+        self.c2_opt.zero_grad()
+        c2_loss.backward()
         self.c2_opt.step()
         
-        return total_loss.item()
+        return c2_loss.item() + c1_loss.item()
     
     def sac_actor_update(self, states: torch.Tensor):
         actions, log_prob = self.actor.sample(states)
@@ -154,6 +165,8 @@ class PusherEnv:
         avg_reward = [] 
         avg_ac_loss = []
         avg_cr_loss = []
+        avg_q1_value = []
+        avg_q2_value = []
         
         for eps in pbar:
             state, _ = self.env.reset()
@@ -163,27 +176,31 @@ class PusherEnv:
             
             while not done:
                 if self.mode == "TD3": 
-                    action = self.target_actor(torch.tensor(state).float().to(self.device))
-                    noise = torch.normal(mean=0.0, std=self.config["td3_exploration"], out=action.shape)
+                    action = self.actor(torch.tensor(state).float().to(self.device))
+                    noise = torch.normal(mean=0.0, std=self.td3_exploration, size=action.shape, device=action.device)
                     action = (action + noise).clamp(self.acs_min, self.acs_max)
                 else: 
                     action = self.target_actor.sample(torch.tensor(state).float().to(self.device))
-                
+            
                 next_state, reward, terminated, truncated, info = self.env.step(action.cpu().detach().numpy())
                 done = terminated or truncated
                 
-                self.buffer.push((state, action, reward, next_state, done))
+                self.buffer.push(state, action, reward, next_state, done)
                 
                 state = next_state
                 total_reward += reward
                 steps += 1
                 
-                if len(self.buffer) > self.config["batch_size"]:
+                if len(self.buffer) > self.config["batch_size"] * self.config["replay_buffer"]:
                     states, actions, rewards, next_states, dones = self.buffer.sample(self.config["batch_size"])
+                    states = states .to(self.device).detach()
+                    actions = actions.to(self.device).detach()
                     
                     if self.mode == "TD3": 
-                        critic_loss = self.td3_critic_update(states, actions, rewards, next_states, dones)
+                        critic_loss, q1_mean, q2_mean = self.td3_critic_update(states, actions, rewards, next_states, dones)
                         avg_cr_loss.append(critic_loss)
+                        avg_q1_value.append(q1_mean)
+                        avg_q2_value.append(q2_mean)
                         
                         if steps % self.config["actor_update_freq"] == 0: 
                             actor_loss = self.td3_actor_update(states)
@@ -199,11 +216,15 @@ class PusherEnv:
                     self.update_target(False)
             
             avg_reward.append(total_reward)
-            eps_ac_loss = sum(avg_ac_loss) / len(avg_ac_loss)
-            eps_cr_loss = sum(avg_cr_loss) / len(avg_cr_loss)
-            eps_reward = sum(avg_reward) / len(avg_reward)
-            pbar.set_postfix(reward=eps_reward, Actorloss=eps_ac_loss, Criticloss=eps_cr_loss)
+            eps_ac_loss = sum(avg_ac_loss) / len(avg_ac_loss) if len(avg_ac_loss) > 0 else 0
+            eps_cr_loss = sum(avg_cr_loss) / len(avg_cr_loss) if len(avg_ac_loss) > 0 else 0
+            eps_reward = sum(avg_reward) / len(avg_reward) if len(avg_ac_loss) > 0 else 0
+            eps_q1_value = avg_q1_value[-1] if len(avg_q1_value) > 0 else 0
+            eps_q2_value = avg_q2_value[-1] if len(avg_q2_value) > 0 else 0
+            pbar.set_postfix(reward=eps_reward, Actorloss=eps_ac_loss, Criticloss=eps_cr_loss, Q1value=eps_q1_value, Q2value=eps_q2_value)
             
+            self.td3_exploration = max(self.td3_exploration * self.td3_exploration_decay, self.td3_exploration_min)
+
             os.system('cls' if os.name == "nt" else 'clear')
             
         self.actor.save(os.path.join(path, "actor.pth"))

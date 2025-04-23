@@ -1,5 +1,5 @@
 import argparse
-from pusher.env import PusherEnv
+from src.pusher.env import PusherEnv
 
 def main(args):
     if args.model == "pusher":

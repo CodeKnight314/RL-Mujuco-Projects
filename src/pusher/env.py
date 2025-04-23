@@ -1,5 +1,5 @@
 import gymnasium as gym
-import torch.utils
+import cv2
 from src.model import ActorDeterministic, ActorProbabilistic, Critic
 from src.replay import ReplayBuffer
 import yaml
@@ -51,7 +51,8 @@ class PusherEnv:
         with open(config, 'r') as f:
             self.config = yaml.safe_load(f)
             
-        self.env = gym.make("Pusher-v5")
+        self.env = gym.make("Pusher-v5",
+                            render_mode="rgb_array",)
         
         self.obs = self.env.observation_space.shape[0]
         self.acs = self.env.action_space.shape[0]
@@ -142,12 +143,10 @@ class PusherEnv:
         
         self.c1_opt.zero_grad()
         c1_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.critic_1.parameters(), self.config["max_grad_norm"])
         self.c1_opt.step()
         
         self.c2_opt.zero_grad()
         c2_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.critic_2.parameters(), self.config["max_grad_norm"])
         self.c2_opt.step()
         
         return c2_loss.item() + c1_loss.item(), q1_mean, q2_mean
@@ -158,7 +157,6 @@ class PusherEnv:
         
         self.ac_opt.zero_grad()
         actor_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), self.config["max_grad_norm"])
         self.ac_opt.step()
         
         return actor_loss.item()
@@ -331,33 +329,50 @@ class PusherEnv:
     def test(self, path: str): 
         os.makedirs(path, exist_ok=True)
         self.actor.load(os.path.join(path, "actor.pth"))
-        self.actor.eval()
+        video_path = os.path.join(path, "pusher.mp4")
         
         state, _ = self.env.reset()
         done = False
         total_reward = 0.0
-        steps = 0
+        
+        frame = self.env.render()
+        height, width, _ = frame.shape
+        
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        video = cv2.VideoWriter(video_path, fourcc, 30.0, (width, height))
+        
+        frames = []
+        
+        step_count = 0
         
         while not done:
+            frame = self.env.render()
+            frames.append(frame)
             normalized_state = self.state_normalizer.normalize(state)
             state_tensor = torch.tensor(normalized_state, dtype=torch.float32).to(self.device)
             
-            if self.mode == "TD3": 
-                action = self.actor(state_tensor)
-            else: 
-                action, _ = self.actor.sample(state_tensor)
-                
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            video.write(frame)
+            
+            with torch.no_grad():
+                if self.mode == "TD3": 
+                    action = self.actor(state_tensor)
+                else: 
+                    action, _ = self.actor.sample(state_tensor)
+            
             next_state, reward, terminated, truncated, _ = self.env.step(action.cpu().detach().numpy())
             done = terminated or truncated
             
             state = next_state
             total_reward += reward
-            steps += 1
-            self.env.render()
-            print(f"Step: {steps}, Reward: {reward}")
-
+            step_count += 1
+            
+        video.release()
+        print(f"MP4 video saved at {video_path}")
+        print(f"Test completed with total reward: {total_reward}")
         self.env.close()
-              
+        return total_reward
+             
 if __name__ == "__main__":
     pusher = PusherEnv("src/pusher/config.yaml", "huh")
     

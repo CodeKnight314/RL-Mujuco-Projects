@@ -9,7 +9,7 @@ def init_weights(module, gain=np.sqrt(2)):
     return module
 
 class ActorProbabilistic(nn.Module): 
-    def __init__(self, input_dim: int, output_dim: int, hidden_dim: int):
+    def __init__(self, input_dim: int, output_dim: int, hidden_dim: int=256):
         super().__init__()
         
         self.net = nn.Sequential(*[
@@ -48,7 +48,7 @@ class ActorProbabilistic(nn.Module):
         torch.save(self.state_dict(), path)
         
 class ActorDeterministic(nn.Module):
-    def __init__(self, input_dim: int, output_dim: int, hidden_dim: int):
+    def __init__(self, input_dim: int, output_dim: int, hidden_dim: int=256):
         super().__init__()
         
         self.net = nn.Sequential(*[
@@ -62,8 +62,14 @@ class ActorDeterministic(nn.Module):
     def forward(self, x: torch.Tensor):
         return torch.tanh(self.net(x))
     
+    def load(self, weights: str): 
+        self.load_state_dict(torch.load(weights))
+        
+    def save(self, path: str):
+        torch.save(self.state_dict(), path)
+    
 class Critic(nn.Module): 
-    def __init__(self, input_dim: int, hidden_dim: int): 
+    def __init__(self, input_dim: int, hidden_dim: int=256): 
         super(Critic, self).__init__()
         self.net = nn.Sequential(*[
             init_weights(nn.Linear(input_dim, hidden_dim)),

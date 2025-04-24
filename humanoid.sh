@@ -1,0 +1,1 @@
+python3 -m src.main --config src/humanoid/config.yaml --mode TD3 --path outputs/ --model humanoid --train

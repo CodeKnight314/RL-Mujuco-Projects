@@ -8,3 +8,7 @@ src/__pycache__/model.cpython-312.pyc
 src/__pycache__/replay.cpython-312.pyc
 src/pusher/__pycache__/__init__.cpython-313.pyc
 src/pusher/__pycache__/env.cpython-313.pyc
+src/ant_model/__pycache__/__init__.cpython-312.pyc
+src/ant_model/__pycache__/env.cpython-312.pyc
+src/humanoid_walking/__pycache__/__init__.cpython-312.pyc
+src/humanoid_walking/__pycache__/env.cpython-312.pyc

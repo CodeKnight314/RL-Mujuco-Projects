@@ -103,6 +103,46 @@ class PusherEnv:
             
         self.update_target(True)
         
+    def warmup(self):
+        while len(self.buffer) < self.config["batch_size"] * self.config["replay_buffer"]:
+            state, _ = self.env.reset()
+            done = False 
+            total_reward = 0.0
+            
+            while not done:
+                normalized_state = self.state_normalizer.normalize(state)
+                
+                state_tensor = torch.tensor(normalized_state, dtype=torch.float32).to(self.device)
+                
+                if self.mode == "TD3": 
+                    action = self.actor(state_tensor)
+                    noise = (torch.randn_like(action) * 0.2).clamp(-0.5, 0.5)
+                    action = (action + noise).clamp(self.acs_min, self.acs_max)
+                else: 
+                    action, _ = self.actor.sample(state_tensor)
+            
+                next_state, reward, terminated, truncated, _ = self.env.step(action.cpu().detach().numpy())
+                
+                done = terminated or truncated
+                
+                self.state_normalizer.update(np.array([next_state]))                    
+                normalized_next_state = self.state_normalizer.normalize(next_state)
+                
+                self.buffer.push(
+                    normalized_state, 
+                    action, 
+                    reward, 
+                    normalized_next_state, 
+                    done
+                )
+                
+                state = next_state
+                total_reward += reward
+                
+                if len(self.buffer) > self.config["batch_size"] * self.config["replay_buffer"]:
+                    return
+        print(f"[INFO] Warmup completed. Buffer size: {len(self.buffer)}")
+        
     def update_target(self, hard_update: bool = True, tau: float = 0.005):
         if hard_update: 
             self.target_actor.load_state_dict(self.actor.state_dict())
@@ -120,9 +160,9 @@ class PusherEnv:
                 
     def td3_critic_update(self, states: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor, next_states: torch.Tensor, dones: torch.Tensor):
         with torch.no_grad(): 
-            next_actions = self.target_actor(next_states)
-            noise_scale = self.config["td3_exploration_start"]
-            noise = (torch.randn_like(next_actions) * noise_scale).clamp(-noise_scale, noise_scale)
+            next_actions = self.target_actor(next_states.to(self.device))
+            noise_scale = 0.2
+            noise = (torch.randn_like(next_actions) * noise_scale).clamp(-0.5, 0.5)
             next_actions = torch.clamp(next_actions + noise, self.acs_min, self.acs_max)
             
             state_action = torch.cat([next_states, next_actions], dim=-1)
@@ -143,10 +183,12 @@ class PusherEnv:
         
         self.c1_opt.zero_grad()
         c1_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic_1.parameters(), self.config["max_grad_norm"])
         self.c1_opt.step()
         
         self.c2_opt.zero_grad()
         c2_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic_2.parameters(), self.config["max_grad_norm"])
         self.c2_opt.step()
         
         return c2_loss.item() + c1_loss.item(), q1_mean, q2_mean
@@ -157,6 +199,7 @@ class PusherEnv:
         
         self.ac_opt.zero_grad()
         actor_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), self.config["max_grad_norm"])
         self.ac_opt.step()
         
         return actor_loss.item()
@@ -224,6 +267,7 @@ class PusherEnv:
                 
     def train(self, path: str):
         os.makedirs(path, exist_ok=True)
+        self.warmup()
             
         pbar = tqdm(range(self.config["episodes"]), desc="Episodes: ")
         avg_reward = [] 
@@ -246,7 +290,7 @@ class PusherEnv:
                 
                 if self.mode == "TD3": 
                     action = self.actor(state_tensor)
-                    noise = torch.normal(mean=0.0, std=self.td3_exploration, size=action.shape, device=action.device)
+                    noise = (torch.randn_like(action) * 0.2).clamp(-0.5, 0.5)
                     action = (action + noise).clamp(self.acs_min, self.acs_max)
                 else: 
                     action, _ = self.actor.sample(state_tensor)
@@ -259,9 +303,7 @@ class PusherEnv:
                 
                 done = terminated or truncated
                 
-                if steps % 20 == 0:
-                    self.state_normalizer.update(np.array([next_state]))
-                    
+                self.state_normalizer.update(np.array([next_state]))                    
                 normalized_next_state = self.state_normalizer.normalize(next_state)
                 
                 self.buffer.push(
@@ -276,10 +318,13 @@ class PusherEnv:
                 total_reward += reward
                 steps += 1
                 
-                if len(self.buffer) > self.config["batch_size"] * self.config["replay_buffer"]:
+                if len(self.buffer) > self.config["batch_size"]:
                     states, actions, rewards, next_states, dones = self.buffer.sample(self.config["batch_size"])
                     states = states.to(self.device).detach()
                     actions = actions.to(self.device).detach()
+                    rewards = rewards.to(self.device).detach()
+                    next_states = next_states.to(self.device).detach()
+                    dones = dones.to(self.device).detach()
                     
                     if self.mode == "TD3": 
                         critic_loss, q1_mean, q2_mean = self.td3_critic_update(states, actions, rewards, next_states, dones)
@@ -325,6 +370,8 @@ class PusherEnv:
         self.actor.save(os.path.join(path, "actor.pth"))
         self.critic_1.save(os.path.join(path, "critic_1.pth"))
         self.critic_2.save(os.path.join(path, "critic_2.pth"))
+        
+        return sum(avg_reward) / len(avg_reward)
               
     def test(self, path: str): 
         os.makedirs(path, exist_ok=True)

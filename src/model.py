@@ -48,7 +48,7 @@ class ActorProbabilistic(nn.Module):
         torch.save(self.state_dict(), path)
         
 class ActorDeterministic(nn.Module):
-    def __init__(self, input_dim: int, output_dim: int, hidden_dim: int=256):
+    def __init__(self, input_dim: int, output_dim: int, hidden_dim: int=256, multiplier: float=2.0):
         super().__init__()
         
         self.net = nn.Sequential(*[
@@ -59,8 +59,10 @@ class ActorDeterministic(nn.Module):
             init_weights(nn.Linear(hidden_dim , output_dim)), 
         ])
         
+        self.multiplier = multiplier
+        
     def forward(self, x: torch.Tensor):
-        return torch.tanh(self.net(x))
+        return torch.tanh(self.net(x)) * self.multiplier
     
     def load(self, weights: str): 
         self.load_state_dict(torch.load(weights))

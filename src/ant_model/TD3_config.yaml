@@ -13,8 +13,6 @@ actor_update_freq: 10
 td3_exploration_start: 0.25
 td3_exploration_min: 0.00001
 td3_exploration_decay: 0.97
+td3_noise_clip: 0.5
 replay_buffer: 20
 reward_scale: 10
-max_grad_norm: 2.5
-log_prob_clip: 5.0
-reward_clip: 20.0

@@ -1,4 +1,0 @@
-python3 -m src.main --config src/humanoid_walking/config.yaml --mode TD3 --path outputs/humanoid_walking/TD3 --model humanoid --train
-xvfb-run --server-args="-screen 0 1024x768x24" python3 -m src.main --config src/humanoid_walking/config.yaml --mode TD3 --path outputs/ --model humanoid --weights outputs/humanoid_walking/TD3/
-python3 -m src.main --config src/humanoid_walking/config.yaml --mode SAC --path outputs/humanoid_walking/SAC --model humanoid --train
-xvfb-run --server-args="-screen 0 1024x768x24" python3 -m src.main --config src/humanoid_walking/config.yaml --mode SAC --path outputs/ --model humanoid --weights outputs/humanoid_walking/SAC/

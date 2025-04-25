@@ -1,15 +1,24 @@
 import argparse
 from src.base_env import BaseEnv
 
+MODEL_ENV_MAP = {
+    "pusher": "Pusher-v5",
+    "ant": "Ant-v5",
+    "humanoid": "Humanoid-v5",
+    "cheetah": "HalfCheetah-v5",
+    "hopper": "Hopper-v5",
+    "humanoidstandup": "HumanoidStandup-v5",
+    "invertedpendulum": "InvertedPendulum-v5",
+    "inverteddoublependulum": "InvertedDoublePendulum-v5",
+    "reacher": "Reacher-v5",
+    "swimmer": "Swimmer-v5",
+    "walker": "Walker2d-v5",
+}
+
 def main(args):
-    if args.model == "pusher":
-        env_name = "Pusher-v5"
-    elif args.model == "ant":
-        env_name = "Ant-v5"
-    elif args.model == "humanoid":
-        env_name = "Humanoid-v5"
-    else:
-        raise ValueError("Invalid model type. Choose from 'pusher', 'ant', or 'humanoid'.") 
+    env_name = MODEL_ENV_MAP.get(args.model)
+    if env_name is None:
+        raise ValueError(f"Invalid model type '{args.model}'. Choose from: {', '.join(MODEL_ENV_MAP.keys())}")
     
     env = BaseEnv(args.config, args.weights, args.mode, env_name)
     if args.train:
@@ -19,7 +28,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="RL training for various MuJoCo models")
-    parser.add_argument("--model", type=str, choices=["pusher", "ant", "humanoid"], required=True, help="Model type to train/test")
+    parser.add_argument("--model", type=str, choices=list(MODEL_ENV_MAP.keys()), required=True, help="Model type to train/test")
     parser.add_argument("--config", type=str, default="default", help="Configuration name")
     parser.add_argument("--weights", type=str, default=None, help="Path to pretrained weights")
     parser.add_argument("--mode", type=str, default="train", choices=["TD3", "SAC"], help="Mode of operation")

@@ -9,7 +9,7 @@ def init_weights(module, gain=np.sqrt(2)):
     return module
 
 class ActorProbabilistic(nn.Module): 
-    def __init__(self, input_dim: int, output_dim: int, hidden_dim: int=256):
+    def __init__(self, input_dim: int, output_dim: int, hidden_dim: int=256, log_std_min: float=-5, log_std_max: float=2, action_range: float=1.0): 
         super().__init__()
         
         self.net = nn.Sequential(*[
@@ -17,29 +17,31 @@ class ActorProbabilistic(nn.Module):
             nn.ReLU(inplace=True), 
             init_weights(nn.Linear(hidden_dim, hidden_dim)), 
             nn.ReLU(inplace=True),
+            init_weights(nn.Linear(hidden_dim, 2 * output_dim))
         ])
         
-        self.mean = init_weights(nn.Linear(hidden_dim, output_dim))
-        
-        self.log_std = nn.Parameter(torch.ones(output_dim) * -0.5)
-        
+        self.log_std_min = log_std_min
+        self.log_std_max = log_std_max
+        self.action_range = action_range
+                
     def forward(self, x: torch.Tensor):
-        output = self.net(x)
-        
-        mean = self.mean(output)
-        
-        std = torch.exp(torch.clamp(self.log_std, -5, 2))
-        return mean, std
-    
+        mean, log_std = self.net(x).chunk(2, dim=-1)
+        log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
+        std = torch.exp(log_std)
+        return mean,std
+
     def sample(self, x: torch.Tensor):
-        mean, std = self.forward(x)
+        mu, std = self.forward(x)
+        dist = torch.distributions.Normal(mu, std)
+
+        z = dist.rsample()
+        action = torch.tanh(z) * self.action_range
         
-        dist = torch.distributions.Normal(mean, std)
-        action = dist.rsample()
-        
-        log_probs = dist.log_prob(action).sum(dim=-1)
-        
-        return action, log_probs
+        log_prob_z = dist.log_prob(z)
+        log_prob = log_prob_z - torch.log(1 - torch.tanh(z).pow(2) + 1e-6)
+        log_prob = log_prob.sum(dim=-1, keepdim=True)
+
+        return action, log_prob
     
     def load(self, weights: str): 
         self.load_state_dict(torch.load(weights))

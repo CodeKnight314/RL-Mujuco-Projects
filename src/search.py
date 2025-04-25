@@ -8,23 +8,31 @@ import os
 import uuid
 from src.base_env import BaseEnv
 
+MODEL_ENV_MAP = {
+    "pusher": "Pusher-v5",
+    "ant": "Ant-v5",
+    "humanoid": "Humanoid-v5",
+    "cheetah": "HalfCheetah-v5",
+    "hopper": "Hopper-v5",
+    "humanoidstandup": "HumanoidStandup-v5",
+    "invertedpendulum": "InvertedPendulum-v5",
+    "inverteddoublependulum": "InvertedDoublePendulum-v5",
+    "reacher": "Reacher-v5",
+    "swimmer": "Swimmer-v5",
+    "walker": "Walker2d-v5",
+}
+
 def build_cfg_for_trial(trial, trial_dir: str, base_cfg_path: str) -> str:
     with open(base_cfg_path) as f:
         cfg = yaml.safe_load(f)
 
     cfg["actor_lr"]  = trial.suggest_categorical(
         "actor_lr",
-        [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2],
+        [1e-5, 2e-5, 3e-5, 5e-5, 7e-5, 1e-4, 2e-4, 3e-4, 5e-4, 7e-4, 1e-3, 2e-3, 3e-3, 5e-3, 7e-3, 1e-2],
     )
     cfg["critic_lr"] = trial.suggest_categorical(
         "critic_lr",
-        [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2],
-    )
-
-    cfg["max_grad_norm"] = trial.suggest_float(
-        "max_grad_norm",
-        0.5, 2.5,
-        step=0.1,
+        [1e-5, 2e-5, 3e-5, 5e-5, 7e-5, 1e-4, 2e-4, 3e-4, 5e-4, 7e-4, 1e-3, 2e-3, 3e-3, 5e-3, 7e-3, 1e-2],
     )
 
     cfg["td3_exploration_start"] = trial.suggest_float(
@@ -53,20 +61,14 @@ def build_cfg_for_trial(trial, trial_dir: str, base_cfg_path: str) -> str:
 
 def objective(trial, mode: str, model: str, study_dir: str, base_cfg_path: str) -> float:
     cfg_path = build_cfg_for_trial(trial, study_dir, base_cfg_path)
+
+    env_name = MODEL_ENV_MAP.get(model)
+    if env_name is None:
+        raise ValueError(f"Invalid model type '{model}'. Choose from: {', '.join(MODEL_ENV_MAP.keys())}")
     
-    if model == "pusher":
-        env_name = "Pusher-v5"
-    elif model == "ant":
-        env_name = "Ant-v5"
-    elif model == "humanoid":
-        env_name = "Humanoid-v5"
-    else:
-        raise ValueError("Invalid model type. Choose from 'pusher', 'ant', or 'humanoid'.") 
-    
-    env = BaseEnv(config=cfg_path, weight=None, mode=mode, env_name=env_name)
-    
-    reward = env.train("outputs/")
-    
+    env = BaseEnv(config=cfg_path, weights=None, mode=mode, env_name=env_name)
+    reward = env.train(os.path.join("search", f"{env_name}_{mode}", f"trial_{trial.number}"))
+
     return reward
 
 def main(args):
@@ -107,7 +109,7 @@ if __name__ == "__main__":
     parser.add_argument("--n-trials", type=int, default=50, help="number of Optuna trials")
     parser.add_argument("--timeout", type=int, default=3600, help="timeout in seconds")
     parser.add_argument("--mode", choices=["TD3", "SAC"], default="TD3")
-    parser.add_argument("--model", choices=["pusher", "ant", "humanoid"], default="pusher")
+    parser.add_argument("--model", choices=list(MODEL_ENV_MAP.keys()), default="pusher")
     parser.add_argument("--study-dir", default="runs", help="directory to store study results")
     parser.add_argument("--base-cfg", default="cfg/pusher.yaml", help="base config file path")
     args = parser.parse_args()

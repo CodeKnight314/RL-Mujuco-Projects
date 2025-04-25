@@ -31,9 +31,9 @@ class BaseEnv:
             self.ac_opt = torch.optim.Adam(self.actor.parameters(), self.config["actor_lr"])
             self.target_actor = ActorDeterministic(self.obs, self.acs, multiplier=(self.acs_max - self.acs_min)/2.0).to(self.device)
         elif mode == "SAC":
-            self.actor = ActorProbabilistic(self.obs, self.acs).to(self.device)
+            self.actor = ActorProbabilistic(self.obs, self.acs, action_range=(self.acs_max - self.acs_min)/2.0).to(self.device)
             self.ac_opt = torch.optim.Adam(self.actor.parameters(), self.config["actor_lr"])
-            self.target_actor = ActorProbabilistic(self.obs, self.acs).to(self.device)
+            self.target_actor = ActorProbabilistic(self.obs, self.acs, action_range=(self.acs_max - self.acs_min)/2.0).to(self.device)
             
         self.critic_1 = Critic(self.obs + self.acs).to(self.device)
         self.critic_2 = Critic(self.obs + self.acs).to(self.device)
@@ -52,6 +52,7 @@ class BaseEnv:
         self.td3_exploration = self.config["td3_exploration_start"]
         self.td3_exploration_min = self.config["td3_exploration_min"]
         self.td3_exploration_decay = self.config["td3_exploration_decay"]
+        self.td3_noise_clip = self.config["td3_noise_clip"]
             
         if weights: 
             try:
@@ -234,7 +235,7 @@ class BaseEnv:
                 
                 if self.mode == "TD3": 
                     action = self.actor(state_tensor)
-                    noise = (torch.randn_like(action) * 0.2).clamp(-0.5, 0.5)
+                    noise = (torch.randn_like(action) * self.td3_exploration).clamp(-self.td3_noise_clip, self.td3_noise_clip)
                     action = (action + noise).clamp(self.acs_min, self.acs_max)
                 else: 
                     action, _ = self.actor.sample(state_tensor)
@@ -297,8 +298,8 @@ class BaseEnv:
             self.td3_exploration = max(self.td3_exploration * self.td3_exploration_decay, self.td3_exploration_min)
             
             pbar.set_postfix(
-                reward=eps_reward, 
-                raw=episode_reward_raw,
+                reward=f"{eps_reward:.4f}", 
+                raw=f"{episode_reward_raw:.4f}",
                 Actorloss=f"{eps_ac_loss:.4f}", 
                 Criticloss=f"{eps_cr_loss:.4f}", 
                 Q1=f"{eps_q1_value:.2f}", 

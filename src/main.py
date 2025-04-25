@@ -1,21 +1,19 @@
 import argparse
-from src.pusher.env import PusherEnv
-from src.ant_model.env import AntEnv
-from src.humanoid_walking.env import HumanoidEnv
+from src.base_env import BaseEnv
 
 def main(args):
     if args.model == "pusher":
-        env = PusherEnv(args.config, args.weights, args.mode)
+        env_name = "Pusher-v5"
     elif args.model == "ant":
-        env = AntEnv(args.config, args.weights, args.mode)
+        env_name = "Ant-v5"
     elif args.model == "humanoid":
-        env = HumanoidEnv(args.config, args.weights, args.mode)
+        env_name = "Humanoid-v5"
     else:
         raise ValueError("Invalid model type. Choose from 'pusher', 'ant', or 'humanoid'.") 
     
+    env = BaseEnv(args.config, args.weights, args.mode, env_name)
     if args.train:
         env.train(args.path)
-        env.test(args.path)
     else: 
         env.test(args.path)
 

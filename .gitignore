@@ -12,3 +12,7 @@ src/ant_model/__pycache__/__init__.cpython-312.pyc
 src/ant_model/__pycache__/env.cpython-312.pyc
 src/humanoid_walking/__pycache__/__init__.cpython-312.pyc
 src/humanoid_walking/__pycache__/env.cpython-312.pyc
+resources/hopper/.DS_Store
+resources/inverted_pendulum/.DS_Store
+resources/invertedDouble/.DS_Store
+.gitignore

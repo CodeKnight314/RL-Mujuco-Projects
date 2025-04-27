@@ -12,7 +12,7 @@ target_update_freq: 10
 actor_update_freq: 5
 td3_exploration_start: 0.2
 td3_exploration_min: 0.00001
-td3_exploration_decay: 0.99
+td3_exploration_decay: 500
 td3_noise_clip: 0.5
 replay_buffer: 20
 reward_scale: 10

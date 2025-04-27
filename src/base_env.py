@@ -27,20 +27,20 @@ class BaseEnv:
         self.mode = mode
         
         if mode == "TD3": 
-            self.actor = ActorDeterministic(self.obs, self.acs, multiplier=(self.acs_max - self.acs_min)/2.0).to(self.device)
+            self.actor = ActorDeterministic(self.obs, self.acs, hidden_dim=self.config["actor_hidden_dim"], multiplier=(self.acs_max - self.acs_min)/2.0).to(self.device)
             self.ac_opt = torch.optim.Adam(self.actor.parameters(), self.config["actor_lr"])
-            self.target_actor = ActorDeterministic(self.obs, self.acs, multiplier=(self.acs_max - self.acs_min)/2.0).to(self.device)
+            self.target_actor = ActorDeterministic(self.obs, self.acs, hidden_dim=self.config["actor_hidden_dim"], multiplier=(self.acs_max - self.acs_min)/2.0).to(self.device)
         elif mode == "SAC":
-            self.actor = ActorProbabilistic(self.obs, self.acs, action_range=(self.acs_max - self.acs_min)/2.0).to(self.device)
+            self.actor = ActorProbabilistic(self.obs, self.acs, hidden_dim=self.config["actor_hidden_dim"], action_range=(self.acs_max - self.acs_min)/2.0).to(self.device)
             self.ac_opt = torch.optim.Adam(self.actor.parameters(), self.config["actor_lr"])
-            self.target_actor = ActorProbabilistic(self.obs, self.acs, action_range=(self.acs_max - self.acs_min)/2.0).to(self.device)
+            self.target_actor = ActorProbabilistic(self.obs, self.acs, hidden_dim=self.config["actor_hidden_dim"], action_range=(self.acs_max - self.acs_min)/2.0).to(self.device)
             
-        self.critic_1 = Critic(self.obs + self.acs).to(self.device)
-        self.critic_2 = Critic(self.obs + self.acs).to(self.device)
+        self.critic_1 = Critic(self.obs + self.acs, hidden_dim=self.config["critic_hidden_dim"]).to(self.device)
+        self.critic_2 = Critic(self.obs + self.acs, hidden_dim=self.config["critic_hidden_dim"]).to(self.device)
         self.c1_opt = torch.optim.Adam(self.critic_1.parameters(), self.config["critic_lr"])
         self.c2_opt = torch.optim.Adam(self.critic_2.parameters(), self.config["critic_lr"])
-        self.tc_1 = Critic(self.obs + self.acs).to(self.device)
-        self.tc_2 = Critic(self.obs + self.acs).to(self.device)
+        self.tc_1 = Critic(self.obs + self.acs, hidden_dim=self.config["critic_hidden_dim"]).to(self.device)
+        self.tc_2 = Critic(self.obs + self.acs, hidden_dim=self.config["critic_hidden_dim"]).to(self.device)
         
         self.buffer = ReplayBuffer(self.config["memory"])
         
@@ -64,6 +64,12 @@ class BaseEnv:
                 print(f"[ERROR] Could not load one or more of the provided weights. Training from scratch")
             
         self.update_target(True)
+        
+    def update_noise(self, episode: int):
+        if self.mode == "TD3": 
+            self.td3_exploration = max(self.td3_exploration_min, self.config["td3_exploration_start"] - (episode / self.td3_exploration_decay) * (self.config["td3_exploration_start"] - self.td3_exploration_min))
+        else: 
+            pass
         
     def warmup(self):
         while len(self.buffer) < self.config["batch_size"] * self.config["replay_buffer"]:
@@ -295,7 +301,7 @@ class BaseEnv:
             eps_q1_value = avg_q1_value[-1] if len(avg_q1_value) > 0 else 0
             eps_q2_value = avg_q2_value[-1] if len(avg_q2_value) > 0 else 0
             
-            self.td3_exploration = max(self.td3_exploration * self.td3_exploration_decay, self.td3_exploration_min)
+            self.update_noise(eps)
             
             pbar.set_postfix(
                 reward=f"{eps_reward:.4f}", 
@@ -303,7 +309,8 @@ class BaseEnv:
                 Actorloss=f"{eps_ac_loss:.4f}", 
                 Criticloss=f"{eps_cr_loss:.4f}", 
                 Q1=f"{eps_q1_value:.2f}", 
-                Q2=f"{eps_q2_value:.2f}"
+                Q2=f"{eps_q2_value:.2f}",
+                noise=f"{self.td3_exploration:.4f}",
             )
             
         self.actor.save(os.path.join(path, "actor.pth"))

@@ -15,4 +15,6 @@ src/humanoid_walking/__pycache__/env.cpython-312.pyc
 resources/hopper/.DS_Store
 resources/inverted_pendulum/.DS_Store
 resources/invertedDouble/.DS_Store
-.gitignore
+.DS_Store
+resources/.DS_Store
+resources/ant/.DS_Store

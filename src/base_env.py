@@ -15,7 +15,7 @@ class BaseEnv:
             self.config = yaml.safe_load(f)
             
         self.env = gym.make(env_name,
-                            render_mode="rgb_array",)
+                            render_mode="rgb_array")
         
         self.obs = self.env.observation_space.shape[0]
         self.acs = self.env.action_space.shape[0]
@@ -44,15 +44,16 @@ class BaseEnv:
         
         self.buffer = ReplayBuffer(self.config["memory"])
         
-        self.log_alpha = torch.tensor(np.log(0.1), requires_grad=True)
-        self.alpha = self.log_alpha.exp()
-        self.alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=3e-4)
-        self.target_entropy = -float(self.acs)
-        
-        self.td3_exploration = self.config["td3_exploration_start"]
-        self.td3_exploration_min = self.config["td3_exploration_min"]
-        self.td3_exploration_decay = self.config["td3_exploration_decay"]
-        self.td3_noise_clip = self.config["td3_noise_clip"]
+        if self.mode == "TD3":
+            self.td3_exploration = self.config["td3_exploration_start"]
+            self.td3_exploration_min = self.config["td3_exploration_min"]
+            self.td3_exploration_decay = self.config["td3_exploration_decay"]
+            self.td3_noise_clip = self.config["td3_noise_clip"]
+        else:
+            self.log_alpha = torch.tensor(np.log(0.1), requires_grad=True)
+            self.alpha = self.log_alpha.exp()
+            self.alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=3e-4)
+            self.target_entropy = -float(self.acs)
             
         if weights: 
             try:
@@ -78,16 +79,10 @@ class BaseEnv:
             total_reward = 0.0
             
             while not done:
-                state_tensor = torch.tensor(state, dtype=torch.float32).to(self.device)
+                action = self.env.action_space.sample()
+                next_state, reward, terminated, truncated, _ = self.env.step(action)
                 
-                if self.mode == "TD3": 
-                    action = self.actor(state_tensor)
-                    noise = (torch.randn_like(action) * 0.2).clamp(-0.5, 0.5)
-                    action = (action + noise).clamp(self.acs_min, self.acs_max)
-                else: 
-                    action, _ = self.actor.sample(state_tensor)
-            
-                next_state, reward, terminated, truncated, _ = self.env.step(action.cpu().detach().numpy())
+                action = torch.tensor(action, dtype=torch.float32).to(self.device)
                 
                 done = terminated or truncated
                                    
@@ -101,9 +96,6 @@ class BaseEnv:
                 
                 state = next_state
                 total_reward += reward
-                
-                if len(self.buffer) > self.config["batch_size"] * self.config["replay_buffer"]:
-                    return
         
     def update_target(self, hard_update: bool = True, tau: float = 0.005):
         if hard_update: 
@@ -170,7 +162,7 @@ class BaseEnv:
             target_q2 = self.tc_2(torch.cat([next_states, next_actions], dim=-1))
             min_q = torch.min(target_q1, target_q2)
 
-            soft_q = min_q - self.alpha * log_prob.unsqueeze(1)
+            soft_q = min_q - self.alpha * log_prob
             target = rewards + self.config["gamma"] * (1 - dones) * soft_q
             
         current_q_c1 = self.critic_1(torch.cat([states, actions], dim=-1))
@@ -223,11 +215,15 @@ class BaseEnv:
         print(f"[INFO] Warmup completed. Buffer size: {len(self.buffer)}")
             
         pbar = tqdm(range(self.config["episodes"]), desc="Episodes: ")
-        avg_reward = [] 
+        
+        from collections import deque
+        avg_reward = deque(maxlen=10)
         avg_ac_loss = []
         avg_cr_loss = []
         avg_q1_value = []
         avg_q2_value = []
+        
+        max_avg_reward = -1e6
         
         for eps in pbar:
             state, _ = self.env.reset()
@@ -301,17 +297,34 @@ class BaseEnv:
             eps_q1_value = avg_q1_value[-1] if len(avg_q1_value) > 0 else 0
             eps_q2_value = avg_q2_value[-1] if len(avg_q2_value) > 0 else 0
             
-            self.update_noise(eps)
+            if max_avg_reward < eps_reward:
+                self.actor.save(os.path.join(path, "actor.pth"))
+                self.critic_1.save(os.path.join(path, "critic_1.pth"))
+                self.critic_2.save(os.path.join(path, "critic_2.pth"))
+                
+                max_avg_reward = eps_reward
             
-            pbar.set_postfix(
-                reward=f"{eps_reward:.4f}", 
-                raw=f"{episode_reward_raw:.4f}",
-                Actorloss=f"{eps_ac_loss:.4f}", 
-                Criticloss=f"{eps_cr_loss:.4f}", 
-                Q1=f"{eps_q1_value:.2f}", 
-                Q2=f"{eps_q2_value:.2f}",
-                noise=f"{self.td3_exploration:.4f}",
-            )
+            if self.mode == "TD3":
+                self.update_noise(eps)
+                pbar.set_postfix(
+                    reward=f"{eps_reward:.4f}", 
+                    raw=f"{episode_reward_raw:.1f}",
+                    Actorloss=f"{eps_ac_loss:.4f}", 
+                    Criticloss=f"{eps_cr_loss:.4f}", 
+                    Q1=f"{eps_q1_value:.2f}", 
+                    Q2=f"{eps_q2_value:.2f}",
+                    noise=f"{self.td3_exploration:.4f}",
+                )
+            else: 
+                pbar.set_postfix(
+                    reward=f"{eps_reward:.4f}", 
+                    raw=f"{episode_reward_raw:.1f}",
+                    Actorloss=f"{eps_ac_loss:.4f}", 
+                    Criticloss=f"{eps_cr_loss:.4f}", 
+                    Q1=f"{eps_q1_value:.2f}", 
+                    Q2=f"{eps_q2_value:.2f}",
+                    alpha=f"{self.alpha:.4f}"
+                )
             
         self.actor.save(os.path.join(path, "actor.pth"))
         self.critic_1.save(os.path.join(path, "critic_1.pth"))

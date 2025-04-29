@@ -7,6 +7,7 @@ from optuna.storages import JournalFileStorage
 import os
 import uuid
 from src.base_env import BaseEnv
+from src.base_multienv import BaseMultiEnv
 
 MODEL_ENV_MAP = {
     "pusher": "Pusher-v5",
@@ -40,14 +41,8 @@ def build_cfg_for_trial(trial, trial_dir: str, base_cfg_path: str) -> str:
         0.1, 0.4,
         step=0.05,
     )
-    cfg["td3_exploration_decay"] = trial.suggest_float(
-        "td3_exploration_decay",
-        0.95, 0.999,
-        step=0.001,
-    )
 
     cfg["target_update_freq"]  = trial.suggest_int("target_update_freq", 1, 10)
-    cfg["actor_update_freq"]   = trial.suggest_int("actor_update_freq", 1, 10)
 
     out_cfg = os.path.join(
         trial_dir,
@@ -59,14 +54,20 @@ def build_cfg_for_trial(trial, trial_dir: str, base_cfg_path: str) -> str:
 
     return out_cfg
 
-def objective(trial, mode: str, model: str, study_dir: str, base_cfg_path: str) -> float:
+def objective(trial, mode: str, model: str, study_dir: str, base_cfg_path: str, multi: bool, num_envs: int) -> float:
     cfg_path = build_cfg_for_trial(trial, study_dir, base_cfg_path)
 
     env_name = MODEL_ENV_MAP.get(model)
     if env_name is None:
         raise ValueError(f"Invalid model type '{model}'. Choose from: {', '.join(MODEL_ENV_MAP.keys())}")
-    
-    env = BaseEnv(config=cfg_path, weights=None, mode=mode, env_name=env_name)
+
+    if multi:
+        print("[INFO] Enabled Parallel Async Environment")
+        env = BaseMultiEnv(config=cfg_path, weights=None, mode=mode, env_name=env_name, num_envs=num_envs)
+    else: 
+        print("[INFO] Enabled Single Environment")
+        env = BaseEnv(config=cfg_path, weights=None, mode=mode, env_name=env_name)
+        
     reward = env.train(os.path.join("search", f"{env_name}_{mode}", f"trial_{trial.number}"))
 
     return reward
@@ -89,7 +90,7 @@ def main(args):
     )
     
     study.optimize(
-        lambda trial: objective(trial, args.mode, args.model, args.study_dir, args.base_cfg),
+        lambda trial: objective(trial, args.mode, args.model, args.study_dir, args.base_cfg, args.multi, args.num_envs),
         n_trials     = args.n_trials,
         timeout      = args.timeout,
         n_jobs       = 1,
@@ -112,6 +113,9 @@ if __name__ == "__main__":
     parser.add_argument("--model", choices=list(MODEL_ENV_MAP.keys()), default="pusher")
     parser.add_argument("--study-dir", default="runs", help="directory to store study results")
     parser.add_argument("--base-cfg", default="cfg/pusher.yaml", help="base config file path")
+    parser.add_argument("--multi", action="store_true", help="enable multi environment for parallel search")
+    parser.add_argument("--num_envs", type=int, default=16, help="Number of environments to run")
+    
     args = parser.parse_args()
 
     main(args)

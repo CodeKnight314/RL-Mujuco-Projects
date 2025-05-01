@@ -17,7 +17,7 @@ This project provides implementations of two state-of-the-art reinforcement lear
 - **Twin Delayed Deep Deterministic Policy Gradient (TD3)**: An enhancement of DDPG that addresses overestimation bias in the critic by using twin critics and delayed policy updates.
 - **Soft Actor-Critic (SAC)**: An off-policy actor-critic algorithm that maximizes both expected reward and entropy, balancing exploration and exploitation.
 
-Both algorithms are implemented for various MuJoCo environments, including Ant, HalfCheetah, Hopper, Inverted Pendulum, Inverted Double Pendulum, Walker, and reacher. Humanoid walking, humanoid standup, pusher are not trained due to computation costs.
+Both algorithms are implemented for various MuJoCo environments, including Ant, HalfCheetah, Hopper, Inverted Pendulum, Inverted Double Pendulum, Walker, and reacher. Humanoid walking, humanoid standup, pusher are not trained due to computation costs that I can't afford at this time.
 
 ## Installation
 1. Clone the repository:

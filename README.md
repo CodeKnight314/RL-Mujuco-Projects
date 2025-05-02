@@ -22,7 +22,7 @@ Both algorithms are implemented for various MuJoCo environments, including Ant, 
 ## Installation
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/RL-Mujoco-Projects.git
+   git clone https://github.com/CodeKnight314/RL-Mujuco-Projects.git
    cd RL-Mujoco-Projects
    ```
 2. Set up the environment:
